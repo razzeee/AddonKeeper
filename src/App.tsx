@@ -3,8 +3,20 @@ import {
   FolderOpen, Pencil, Pin, PinOff, RefreshCw,
   Download, Plus, Search, FolderInput, ArrowRight,
   CheckCircle2, AlertCircle, Clock, Loader2, Package,
-  X, Boxes, GitBranch, Trash2
+  X, Boxes, GitBranch, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react';
+
+type SortCol = 'name' | 'version' | 'source' | 'status';
+type SortDir = 'asc' | 'desc';
+
+const STATUS_ORDER: Record<string, number> = {
+  'update-available': 0,
+  'error':            1,
+  'checking':         2,
+  'updating':         3,
+  'up-to-date':       4,
+  'idle':             5,
+};
 
 // Lucide doesn't ship a GitHub mark — use the official SVG inline
 function GithubIcon({ size = 14 }: { size?: number }) {
@@ -155,12 +167,22 @@ function AddAddonModal({ onInstall, onClose }: {
   );
 }
 
+function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol; sortDir: SortDir }) {
+  if (col !== sortCol) return <ChevronsUpDown size={11} className="sort-icon sort-icon-idle" />;
+  return sortDir === 'asc'
+    ? <ChevronUp size={11} className="sort-icon sort-icon-active" />
+    : <ChevronDown size={11} className="sort-icon sort-icon-active" />;
+}
+
 export default function App() {
   const [config, setConfig] = useState<Config>({ addonsPath: '', addonSources: {}, pinnedAddons: [] });
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [showUpdatesOnly, setShowUpdatesOnly] = useState(false);
+  const [sortCol, setSortCol] = useState<SortCol>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [editingAddon, setEditingAddon] = useState<Addon | null>(null);
   const [addingAddon, setAddingAddon] = useState(false);
   const [selectAll, setSelectAll] = useState(false);
@@ -293,7 +315,22 @@ export default function App() {
     else { setSelected(new Set(filtered.map(a => a.name))); setSelectAll(true); }
   };
 
-  const filtered = addons.filter(a => a.name.toLowerCase().includes(filter.toLowerCase()));
+  const handleSort = (col: SortCol) => {
+    if (col === sortCol) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+
+  const filtered = addons
+    .filter(a => a.name.toLowerCase().includes(filter.toLowerCase()))
+    .filter(a => !showUpdatesOnly || a.status === 'update-available')
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortCol === 'name')    cmp = a.name.localeCompare(b.name);
+      if (sortCol === 'version') cmp = (a.version || '').localeCompare(b.version || '');
+      if (sortCol === 'source')  cmp = (a.repoSlug || a.source || '').localeCompare(b.repoSlug || b.source || '');
+      if (sortCol === 'status')  cmp = (STATUS_ORDER[a.pinned ? 'idle' : a.status] ?? 9) - (STATUS_ORDER[b.pinned ? 'idle' : b.status] ?? 9);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
   const withSource = addons.filter(a => a.repoSlug).length;
   const updateAvailable = addons.filter(a => a.status === 'update-available').length;
   const pinned = addons.filter(a => a.pinned).length;
@@ -338,6 +375,15 @@ export default function App() {
               onChange={e => setFilter(e.target.value)}
             />
           </div>
+
+          <button
+            className={`btn btn-filter ${showUpdatesOnly ? 'btn-filter-active' : ''}`}
+            onClick={() => setShowUpdatesOnly(v => !v)}
+            title="Show only addons with updates available"
+          >
+            <Download size={13} />
+            Updates only
+          </button>
 
           <div className="toolbar-stats">
             <span className="stat"><Package size={12} />{addons.length} addons</span>
@@ -406,10 +452,26 @@ export default function App() {
                 <th className="col-check">
                   <input type="checkbox" checked={selectAll} onChange={toggleAll} />
                 </th>
-                <th className="col-name">Addon</th>
-                <th className="col-version">Version</th>
-                <th className="col-source">Source</th>
-                <th className="col-status">Status</th>
+                <th className="col-name">
+                  <button className="sort-btn" onClick={() => handleSort('name')}>
+                    Addon <SortIcon col="name" sortCol={sortCol} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="col-version">
+                  <button className="sort-btn" onClick={() => handleSort('version')}>
+                    Version <SortIcon col="version" sortCol={sortCol} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="col-source">
+                  <button className="sort-btn" onClick={() => handleSort('source')}>
+                    Source <SortIcon col="source" sortCol={sortCol} sortDir={sortDir} />
+                  </button>
+                </th>
+                <th className="col-status">
+                  <button className="sort-btn" onClick={() => handleSort('status')}>
+                    Status <SortIcon col="status" sortCol={sortCol} sortDir={sortDir} />
+                  </button>
+                </th>
                 <th className="col-actions">Actions</th>
               </tr>
             </thead>

@@ -10,9 +10,9 @@
   --forge-700:  #1c2028;
   --forge-600:  #252b35;
   --forge-500:  #323a47;
-  --forge-400:  #4a5568;
-  --forge-300:  #718096;
-  --forge-200:  #a0aec0;
+  --forge-400:  #6b7a94;
+  --forge-300:  #8fa3bf;
+  --forge-200:  #b8c9de;
   --forge-100:  #e2e8f0;
 
   /* Amber accent — the "forge glow" */
@@ -293,7 +293,7 @@ body {
   background: transparent;
   border: none;
   border-radius: var(--r);
-  color: var(--forge-400);
+  color: var(--forge-300);
   cursor: pointer;
   transition: background .12s, color .12s;
   flex-shrink: 0;
@@ -327,7 +327,53 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-/* ── Table ─────────────────────────── */
+/* ── Sortable column headers ───────── */
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--forge-200);
+  cursor: pointer;
+  transition: color .12s;
+  white-space: nowrap;
+}
+.sort-btn:hover { color: var(--forge-100); }
+
+.sort-icon { display: inline-block; flex-shrink: 0; }
+.sort-icon-idle   { opacity: .35; }
+.sort-icon-active { color: var(--amber); opacity: 1; }
+
+/* ── Updates-only filter button ────── */
+.btn-filter {
+  background: var(--forge-700);
+  color: var(--forge-300);
+  border-color: var(--forge-500);
+}
+.btn-filter:hover {
+  background: var(--forge-600);
+  color: var(--forge-100);
+  border-color: var(--forge-400);
+}
+.btn-filter-active {
+  background: var(--amber-glow);
+  color: var(--amber);
+  border-color: rgba(246,168,42,.4);
+}
+.btn-filter-active:hover {
+  background: var(--amber-glow);
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+
 .table-wrapper { flex: 1; overflow-y: auto; }
 
 .addon-table {
@@ -354,7 +400,7 @@ input[type="checkbox"] {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .08em;
-  color: var(--forge-400);
+  color: var(--forge-200);
 }
 
 .addon-table td {
@@ -411,7 +457,7 @@ input[type="checkbox"] {
 .version-text {
   font-family: var(--font-mono);
   font-size: 11.5px;
-  color: var(--forge-300);
+  color: var(--forge-100);
 }
 .version-arrow {
   display: inline-flex; align-items: center; gap: 3px;
@@ -447,7 +493,7 @@ input[type="checkbox"] {
   gap: 6px;
   background: none;
   border: none;
-  color: var(--forge-300);
+  color: var(--forge-200);
   font-size: 11.5px;
   font-family: var(--font-mono);
   cursor: pointer;
@@ -460,7 +506,7 @@ input[type="checkbox"] {
 .source-link span { overflow: hidden; text-overflow: ellipsis; }
 
 .no-source {
-  color: var(--forge-500);
+  color: var(--forge-300);
   font-size: 12px;
   font-style: italic;
 }
@@ -479,9 +525,9 @@ input[type="checkbox"] {
 }
 
 .badge-idle {
-  background: var(--forge-800);
-  color: var(--forge-400);
-  border: 1px solid var(--forge-600);
+  background: var(--forge-700);
+  color: var(--forge-200);
+  border: 1px solid var(--forge-500);
 }
 .badge-checking {
   background: var(--blue-bg);
