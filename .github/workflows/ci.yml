@@ -4,11 +4,11 @@ on:
   push:
     branches: [main, master]
     paths-ignore:
-      - '**.md'
+      - "**.md"
   pull_request:
     branches: [main, master]
     paths-ignore:
-      - '**.md'
+      - "**.md"
 
 jobs:
   lint-and-build:
@@ -20,13 +20,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.1
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Type-check
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       - name: Build Vite bundle
-        run: npm run build:vite
+        run: pnpm run build:vite

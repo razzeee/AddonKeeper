@@ -64,8 +64,8 @@ Versions are only considered a match when they are identical strings, so a `3.3.
 ```bash
 git clone https://github.com/your-org/addonkeeper
 cd addonkeeper
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 This starts the Vite dev server and opens Electron with hot reload.
@@ -74,12 +74,12 @@ This starts the Vite dev server and opens Electron with hot reload.
 
 ```bash
 # Current platform
-npm run build
+pnpm build
 
 # Specific platforms
-npm run build:linux   # AppImage
-npm run build:win     # NSIS .exe
-npm run build:mac     # DMG
+pnpm build:linux   # AppImage
+pnpm build:win     # NSIS .exe
+pnpm build:mac     # DMG
 ```
 
 Output goes to `dist-electron/`.
