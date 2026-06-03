@@ -471,6 +471,26 @@ input[type="checkbox"] {
   font-weight: 500;
 }
 
+.mode-select {
+  appearance: none;
+  background: var(--forge-800);
+  border: 1px solid var(--forge-600);
+  color: var(--forge-200);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 20px 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 6px;
+  vertical-align: middle;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  transition: border-color .12s;
+}
+.mode-select:hover:not(:disabled) { border-color: var(--amber); }
+.mode-select:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .git-badge {
   display: inline-flex;
   align-items: center;

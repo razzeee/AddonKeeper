@@ -287,6 +287,17 @@ export default function App() {
     return res;
   };
 
+  const switchAddonMode = async (addon: Addon, targetMode: 'releases' | 'git') => {
+    if (!addon.repoSlug) return;
+    updateAddonStatus(addon.name, { status: 'updating', errorMessage: undefined, progressMessage: 'Switching mode…' });
+    const res = await api.switchAddonMode(addon.name, targetMode);
+    if (res.success && res.addon) {
+      setAddons(prev => prev.map(a => a.name === addon.name ? { ...res.addon!, status: 'up-to-date', progressMessage: undefined } : a));
+    } else {
+      updateAddonStatus(addon.name, { status: 'error', errorMessage: res.error, progressMessage: undefined });
+    }
+  };
+
   const togglePin = async (addon: Addon) => {
     const pinned = !addon.pinned;
     await api.setPinned({ addonName: addon.name, pinned });
@@ -512,7 +523,19 @@ export default function App() {
                   </td>
 
                   <td className="col-source">
-                    {addon.isGitRepo && (
+                    {addon.repoSlug && (
+                      <select
+                        className="mode-select"
+                        value={addon.isGitRepo ? 'git' : 'releases'}
+                        disabled={!addon.repoSlug || addon.status === 'checking' || addon.status === 'updating'}
+                        onChange={e => switchAddonMode(addon, e.target.value as 'releases' | 'git')}
+                        title="Tracking mode"
+                      >
+                        <option value="releases">Releases</option>
+                        <option value="git">Git repo</option>
+                      </select>
+                    )}
+                    {addon.isGitRepo && !addon.repoSlug && (
                       <span className="git-badge" title="This folder is a git repository — updates use git pull">
                         <GitBranch size={10} /> git
                       </span>

@@ -100,6 +100,16 @@ function extractGitHubRepo(meta) {
 }
 
 // --- Scan addons directory ---
+function getGitRemoteSlug(dir) {
+  try {
+    const { execFileSync } = require('child_process');
+    const remoteUrl = execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
+    const m = remoteUrl.match(/github\.com[/:]([^/\s]+\/[^/\s#?]+)/);
+    if (m) return m[1].replace(/\.git$/, '');
+  } catch (e) {}
+  return null;
+}
+
 function getGitVersion(dir) {
   // Synchronously get the short HEAD SHA — used during scan
   try {
@@ -141,10 +151,16 @@ function scanAddons(addonsPath) {
     }
 
     const savedSource = addonSources[name];
-    const source = savedSource || (detectedRepo ? `https://github.com/${detectedRepo}` : null);
-    const repoSlug = savedSource
+    let source = savedSource || (detectedRepo ? `https://github.com/${detectedRepo}` : null);
+    let repoSlug = savedSource
       ? savedSource.match(/github\.com[/:]([^/\s]+\/[^/\s#?]+)/)?.[1]?.replace(/\.git$/, '') || null
       : detectedRepo;
+
+    // Last resort for git repos: derive slug from the remote URL
+    if (!repoSlug && isGitRepo) {
+      repoSlug = getGitRemoteSlug(dir);
+      if (repoSlug && !source) source = `https://github.com/${repoSlug}`;
+    }
 
     return {
       name,
@@ -470,6 +486,69 @@ ipcMain.handle('addons:remove', (_, { addonsPath, addonName }) => {
     if (config.pinnedAddons) config.pinnedAddons = config.pinnedAddons.filter(n => n !== addonName);
     saveConfig(config);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('addons:switchMode', async (event, addonName, targetMode) => {
+  try {
+    const config = loadConfig();
+    const addonsPath = config.addonsPath;
+    if (!addonsPath) throw new Error('No addons path configured');
+
+    const source = config.addonSources?.[addonName];
+    const repoSlug = source?.match(/github\.com[/:]([^/\s]+\/[^/\s#?]+)/)?.[1]?.replace(/\.git$/, '') || null;
+    if (!repoSlug) throw new Error('No GitHub repository configured for this addon');
+
+    const sendProgress = (msg) => event.sender.send('update:progress', { addonName, message: msg });
+
+    // Delete existing addon folder
+    const addonPath = path.join(addonsPath, addonName);
+    if (fs.existsSync(addonPath)) {
+      sendProgress('Removing existing folder…');
+      fs.rmSync(addonPath, { recursive: true, force: true });
+    }
+
+    if (targetMode === 'git') {
+      // git clone into the addon folder
+      sendProgress(`Cloning ${repoSlug}…`);
+      const repoUrl = `https://github.com/${repoSlug}.git`;
+      await execFileAsync('git', ['clone', repoUrl, addonPath], { timeout: 120000 });
+    } else {
+      // zip download (releases mode)
+      sendProgress(`Fetching release info for ${repoSlug}…`);
+      const info = await getLatestGitHubInfo(repoSlug);
+
+      sendProgress(`Downloading ${info.downloadUrl}…`);
+      const { buffer, statusCode } = await downloadBinary(info.downloadUrl);
+      if (statusCode !== 200) throw new Error(`Download failed: HTTP ${statusCode}`);
+
+      sendProgress('Extracting…');
+      const tmpDir = path.join(os.tmpdir(), `addon-switch-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const zip = new AdmZip(buffer);
+      zip.extractAllTo(tmpDir, true);
+
+      const addonFolders = findAddonFoldersViaToc(tmpDir);
+      if (addonFolders.length === 0) throw new Error('No addon folders found in downloaded zip');
+
+      sendProgress(`Installing ${addonFolders.length} folder(s)…`);
+      for (const folder of addonFolders) {
+        const targetPath = path.join(addonsPath, folder.name);
+        if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { recursive: true });
+        fs.cpSync(folder.path, targetPath, { recursive: true });
+        if (!config.addonSources) config.addonSources = {};
+        config.addonSources[folder.name] = `https://github.com/${repoSlug}`;
+      }
+      saveConfig(config);
+      fs.rmSync(tmpDir, { recursive: true });
+    }
+
+    // Re-scan and return updated addon info
+    const addons = scanAddons(addonsPath);
+    const updatedAddon = addons.find(a => a.name === addonName) || null;
+    return { success: true, addon: updatedAddon };
   } catch (e) {
     return { success: false, error: e.message };
   }

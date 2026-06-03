@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateAddon: (data) => ipcRenderer.invoke('addons:update', data),
   installAddon: (data) => ipcRenderer.invoke('addons:install', data),
   removeAddon: (data) => ipcRenderer.invoke('addons:remove', data),
+  switchAddonMode: (name, mode) => ipcRenderer.invoke('addons:switchMode', name, mode),
 
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
   openFolder: (p) => ipcRenderer.invoke('shell:openFolder', p),

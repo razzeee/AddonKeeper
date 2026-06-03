@@ -30,6 +30,7 @@ export interface ElectronAPI {
   updateAddon: (data: { addonsPath: string; addon: Addon }) => Promise<{ success: boolean; version?: string; method?: string; foldersUpdated?: string[]; error?: string }>;
   installAddon: (data: { addonsPath: string; repoSlug: string }) => Promise<{ success: boolean; version?: string; foldersInstalled?: string[]; error?: string }>;
   removeAddon: (data: { addonsPath: string; addonName: string }) => Promise<{ success: boolean; error?: string }>;
+  switchAddonMode: (addonName: string, targetMode: 'releases' | 'git') => Promise<{ success: boolean; addon?: Addon; error?: string }>;
   selectFolder: () => Promise<string | null>;
   openFolder: (p: string) => Promise<void>;
   openUrl: (url: string) => Promise<void>;
