@@ -323,6 +323,7 @@ export default function App() {
   const [addingAddon, setAddingAddon] = useState(false);
   const [selectAll, setSelectAll] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [checkProgress, setCheckProgress] = useState<{ done: number; total: number } | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
   const doScan = useCallback(async (addonsPath: string) => {
@@ -463,7 +464,12 @@ export default function App() {
         !a.pinned &&
         (selected.size > 0 ? selected.has(a.name) : true),
     );
-    for (const addon of targets) await checkAddon(addon);
+    setCheckProgress({ done: 0, total: targets.length });
+    for (let i = 0; i < targets.length; i++) {
+      await checkAddon(targets[i]);
+      setCheckProgress({ done: i + 1, total: targets.length });
+    }
+    setCheckProgress(null);
   };
 
   const updateAll = async () => {
@@ -678,6 +684,16 @@ export default function App() {
               </span>
             )}
           </div>
+
+          {checkProgress && (
+            <div className="check-progress-pill">
+              <Loader2 size={11} className="spin" />
+              Checking {checkProgress.done}/{checkProgress.total}
+              <span className="check-progress-bar">
+                <span className="check-progress-fill" style={{ width: `${Math.round(checkProgress.done / checkProgress.total * 100)}%` }} />
+              </span>
+            </div>
+          )}
 
           <div className="toolbar-actions">
             <button
