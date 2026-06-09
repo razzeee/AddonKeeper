@@ -209,6 +209,39 @@ body {
 .stat-update { color: var(--amber); }
 .stat-pinned { color: var(--purple); }
 
+.check-progress-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--blue);
+  background: var(--blue-bg);
+  border: 1px solid rgba(96,165,250,.2);
+  border-radius: 20px;
+  padding: 3px 10px 3px 7px;
+  white-space: nowrap;
+}
+.check-progress-bar {
+  display: inline-block;
+  width: 52px;
+  height: 4px;
+  background: var(--forge-600);
+  border-radius: 2px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.check-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+  border-radius: 2px;
+  transition: width .2s ease;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .8s linear infinite; }
+
 .toolbar-actions { display: flex; gap: 6px; align-items: center; }
 
 /* ── Buttons ───────────────────────── */
