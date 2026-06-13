@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setAddonSource: (data) => ipcRenderer.invoke('addons:setSource', data),
   setPinned: (data) => ipcRenderer.invoke('addons:setPinned', data),
   checkUpdate: (data) => ipcRenderer.invoke('addons:checkUpdate', data),
+  checkUpdates: (data) => ipcRenderer.invoke('addons:checkUpdates', data),
   updateAddon: (data) => ipcRenderer.invoke('addons:update', data),
   installAddon: (data) => ipcRenderer.invoke('addons:install', data),
   removeAddon: (data) => ipcRenderer.invoke('addons:remove', data),

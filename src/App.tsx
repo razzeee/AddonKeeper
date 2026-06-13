@@ -465,10 +465,43 @@ export default function App() {
         (selected.size > 0 ? selected.has(a.name) : true),
     );
     setCheckProgress({ done: 0, total: targets.length });
-    for (let i = 0; i < targets.length; i++) {
-      await checkAddon(targets[i]);
-      setCheckProgress({ done: i + 1, total: targets.length });
+    if (targets.length === 0) {
+      setCheckProgress(null);
+      return;
     }
+
+    for (const addon of targets) {
+      updateAddonStatus(addon.name, {
+        status: "checking",
+        errorMessage: undefined,
+      });
+    }
+
+    const results = await api.checkUpdates(
+      targets.map((addon) => ({
+        repoSlug: addon.repoSlug ?? undefined,
+        addonName: addon.name,
+        addonPath: `${config.addonsPath}/${addon.name}`,
+        isGitRepo: addon.isGitRepo,
+      })),
+    );
+
+    targets.forEach((addon, index) => {
+      const res = results[addon.name];
+      if (res?.success) {
+        updateAddonStatus(addon.name, {
+          status:
+            res.version !== addon.version ? "update-available" : "up-to-date",
+          latestVersion: res.version,
+        });
+      } else {
+        updateAddonStatus(addon.name, {
+          status: "error",
+          errorMessage: res?.error || "Unknown error",
+        });
+      }
+      setCheckProgress({ done: index + 1, total: targets.length });
+    });
     setCheckProgress(null);
   };
 

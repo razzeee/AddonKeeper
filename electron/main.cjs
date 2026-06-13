@@ -10,6 +10,9 @@ const execFileAsync = promisify(execFile);
 const AdmZip = require('adm-zip');
 
 const isDev = process.env.ELECTRON_DEV === '1';
+const githubApiCache = new Map();
+const remoteTocVersionCache = new Map();
+let githubRateLimitError = null;
 
 /**
  * Find addon folders inside an extracted zip directory by locating all .toc files.
@@ -175,19 +178,82 @@ function scanAddons(addonsPath) {
   });
 }
 
+function getRequestHeaders(url) {
+  const headers = { 'User-Agent': 'AscensionAddonUpdater/1.0' };
+  if (url.startsWith('https://api.github.com/')) {
+    headers.Accept = 'application/vnd.github+json';
+    headers['X-GitHub-Api-Version'] = '2022-11-28';
+  }
+  return headers;
+}
+
+function parseGitHubMessage(body) {
+  try {
+    const data = JSON.parse(body);
+    return data.message || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatGitHubReset(headers) {
+  const reset = Number(headers['x-ratelimit-reset']);
+  if (!reset) return 'later';
+  return new Date(reset * 1000).toLocaleTimeString();
+}
+
+function getGitHubResetTime(headers) {
+  const reset = Number(headers['x-ratelimit-reset']);
+  return reset ? reset * 1000 : Date.now() + 60 * 1000;
+}
+
+function createGitHubHttpError(url, res) {
+  const remaining = res.headers?.['x-ratelimit-remaining'];
+  const message = parseGitHubMessage(res.body);
+  const error = new Error(
+    remaining === '0'
+      ? `GitHub API rate limit exceeded. Try again after ${formatGitHubReset(res.headers)}.`
+      : `GitHub request failed (${res.statusCode}) for ${url}${message ? `: ${message}` : ''}`,
+  );
+  error.statusCode = res.statusCode;
+  error.rateLimited = remaining === '0';
+  if (error.rateLimited) error.resetAt = getGitHubResetTime(res.headers);
+  return error;
+}
+
+async function githubApiGet(pathname) {
+  if (githubRateLimitError) {
+    if (Date.now() < githubRateLimitError.resetAt) throw githubRateLimitError;
+    githubRateLimitError = null;
+  }
+  const url = `https://api.github.com${pathname}`;
+  if (githubApiCache.has(url)) return githubApiCache.get(url);
+
+  const res = await httpsGet(url);
+  if (res.statusCode !== 200) {
+    const error = createGitHubHttpError(url, res);
+    if (error.rateLimited) githubRateLimitError = error;
+    throw error;
+  }
+
+  const data = JSON.parse(res.body);
+  githubApiCache.set(url, data);
+  return data;
+}
+
 // --- HTTP(S) GET helper ---
 function httpsGet(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) return reject(new Error('Too many redirects'));
     const lib = url.startsWith('https') ? https : http;
-    const req = lib.get(url, { headers: { 'User-Agent': 'AscensionAddonUpdater/1.0' } }, (res) => {
+    const req = lib.get(url, { headers: getRequestHeaders(url) }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(httpsGet(res.headers.location, redirectCount + 1));
         return;
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('end', () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', reject);
   });
@@ -197,7 +263,7 @@ function downloadBinary(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) return reject(new Error('Too many redirects'));
     const lib = url.startsWith('https') ? https : http;
-    const req = lib.get(url, { headers: { 'User-Agent': 'AscensionAddonUpdater/1.0' } }, (res) => {
+    const req = lib.get(url, { headers: getRequestHeaders(url) }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         resolve(downloadBinary(res.headers.location, redirectCount + 1));
         return;
@@ -214,17 +280,19 @@ function downloadBinary(url, redirectCount = 0) {
 // addonName: the local addon folder name (e.g. "ElvUI_AddOnSkins") — used to pick the right
 // .toc in collection repos that contain multiple addon subdirectories.
 async function getRemoteTocVersion(repoSlug, addonName) {
-  // Get default branch + tree
-  const repoRes = await httpsGet(`https://api.github.com/repos/${repoSlug}`);
-  if (repoRes.statusCode !== 200) return null;
-  const { default_branch: branch } = JSON.parse(repoRes.body);
+  const cacheKey = `${repoSlug}:${addonName || ''}`;
+  if (remoteTocVersionCache.has(cacheKey)) return remoteTocVersionCache.get(cacheKey);
 
-  const treeRes = await httpsGet(`https://api.github.com/repos/${repoSlug}/git/trees/${branch}?recursive=1`);
-  if (treeRes.statusCode !== 200) return null;
-  const { tree } = JSON.parse(treeRes.body);
+  // Get default branch + tree
+  const { default_branch: branch } = await githubApiGet(`/repos/${repoSlug}`);
+
+  const { tree } = await githubApiGet(`/repos/${repoSlug}/git/trees/${branch}?recursive=1`);
 
   const tocs = tree.filter(f => f.type === 'blob' && f.path.endsWith('.toc'));
-  if (tocs.length === 0) return null;
+  if (tocs.length === 0) {
+    remoteTocVersionCache.set(cacheKey, null);
+    return null;
+  }
 
   // Priority order for picking the right .toc:
   // 1. Exact match: the .toc file whose basename (without extension) equals addonName
@@ -241,12 +309,20 @@ async function getRemoteTocVersion(repoSlug, addonName) {
     tocs[0];
 
   const raw = await httpsGet(`https://raw.githubusercontent.com/${repoSlug}/${branch}/${best.path}`);
-  if (raw.statusCode !== 200) return null;
+  if (raw.statusCode !== 200) {
+    remoteTocVersionCache.set(cacheKey, null);
+    return null;
+  }
 
   for (const line of raw.body.split('\n')) {
     const m = line.match(/^##\s*Version\s*:\s*(.+)/i);
-    if (m) return m[1].trim();
+    if (m) {
+      const version = m[1].trim();
+      remoteTocVersionCache.set(cacheKey, version);
+      return version;
+    }
   }
+  remoteTocVersionCache.set(cacheKey, null);
   return null;
 }
 
@@ -254,37 +330,53 @@ async function getRemoteTocVersion(repoSlug, addonName) {
 async function getLatestGitHubInfo(repoSlug) {
   // Try releases API first
   try {
-    const res = await httpsGet(`https://api.github.com/repos/${repoSlug}/releases/latest`);
-    if (res.statusCode === 200) {
-      const data = JSON.parse(res.body);
-      const zipAsset = data.assets?.find(a => a.name.endsWith('.zip'));
-      // Also try to get TOC version for a meaningful version string
-      const tocVersion = await getRemoteTocVersion(repoSlug).catch(() => null);
-      return {
-        version: tocVersion || data.tag_name,
-        downloadUrl: zipAsset?.browser_download_url || data.zipball_url,
-        type: 'release',
-      };
-    }
-  } catch (e) {}
+    const data = await githubApiGet(`/repos/${repoSlug}/releases/latest`);
+    const zipAsset = data.assets?.find(a => a.name.endsWith('.zip'));
+    // Also try to get TOC version for a meaningful version string
+    const tocVersion = await getRemoteTocVersion(repoSlug).catch(() => null);
+    return {
+      version: tocVersion || data.tag_name,
+      downloadUrl: zipAsset?.browser_download_url || data.zipball_url,
+      type: 'release',
+    };
+  } catch (e) {
+    if (e.rateLimited) throw e;
+  }
 
   // Fall back to default branch
   try {
-    const repoRes = await httpsGet(`https://api.github.com/repos/${repoSlug}`);
-    if (repoRes.statusCode === 200) {
-      const repoData = JSON.parse(repoRes.body);
-      const branch = repoData.default_branch || 'main';
-      const tocVersion = await getRemoteTocVersion(repoSlug).catch(() => null);
-      return {
-        version: tocVersion || branch,
-        downloadUrl: `https://github.com/${repoSlug}/archive/refs/heads/${branch}.zip`,
-        type: 'branch',
-        branch,
-      };
-    }
-  } catch (e) {}
+    const repoData = await githubApiGet(`/repos/${repoSlug}`);
+    const branch = repoData.default_branch || 'main';
+    const tocVersion = await getRemoteTocVersion(repoSlug).catch(() => null);
+    return {
+      version: tocVersion || branch,
+      downloadUrl: `https://github.com/${repoSlug}/archive/refs/heads/${branch}.zip`,
+      type: 'branch',
+      branch,
+    };
+  } catch (e) {
+    if (e.rateLimited) throw e;
+  }
 
   throw new Error(`Could not fetch GitHub info for ${repoSlug}`);
+}
+
+async function checkAddonUpdate({ repoSlug, addonPath, addonName, isGitRepo }) {
+  // Git repo: compare local HEAD SHA vs remote HEAD SHA
+  if (isGitRepo && addonPath) {
+    const { stdout: localSha } = await execFileAsync('git', ['-C', addonPath, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
+    const { stdout: remoteRaw } = await execFileAsync('git', ['-C', addonPath, 'ls-remote', 'origin', 'HEAD'], { encoding: 'utf8' });
+    const remoteSha = remoteRaw.split('\t')[0]?.slice(0, 7) || null;
+    return { success: true, version: remoteSha || localSha.trim(), type: 'git' };
+  }
+
+  // Non-git: compare TOC Version fields — pass addonName so collection repos resolve correctly
+  const remoteVersion = await getRemoteTocVersion(repoSlug, addonName);
+  if (remoteVersion) return { success: true, version: remoteVersion, type: 'toc' };
+
+  // Last resort: fall back to full info (release tag or branch SHA)
+  const info = await getLatestGitHubInfo(repoSlug);
+  return { success: true, ...info };
 }
 
 // Update a single addon — prefers git pull when the folder is a git repo
@@ -401,22 +493,46 @@ ipcMain.handle('addons:setPinned', (_, { addonName, pinned }) => {
 
 ipcMain.handle('addons:checkUpdate', async (_, { repoSlug, addonPath, addonName, isGitRepo }) => {
   try {
-    // Git repo: compare local HEAD SHA vs remote HEAD SHA
-    if (isGitRepo && addonPath) {
-      const { stdout: localSha } = await execFileAsync('git', ['-C', addonPath, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' });
-      const { stdout: remoteRaw } = await execFileAsync('git', ['-C', addonPath, 'ls-remote', 'origin', 'HEAD'], { encoding: 'utf8' });
-      const remoteSha = remoteRaw.split('\t')[0]?.slice(0, 7) || null;
-      return { success: true, version: remoteSha || localSha.trim(), type: 'git' };
-    }
-    // Non-git: compare TOC Version fields — pass addonName so collection repos resolve correctly
-    const remoteVersion = await getRemoteTocVersion(repoSlug, addonName);
-    if (remoteVersion) return { success: true, version: remoteVersion, type: 'toc' };
-    // Last resort: fall back to full info (release tag or branch SHA)
-    const info = await getLatestGitHubInfo(repoSlug);
-    return { success: true, ...info };
+    return await checkAddonUpdate({ repoSlug, addonPath, addonName, isGitRepo });
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+ipcMain.handle('addons:checkUpdates', async (_, checks) => {
+  const results = {};
+  const gitChecks = checks.filter(check => check.isGitRepo);
+  const githubChecks = checks.filter(check => !check.isGitRepo);
+  const checksByRepo = new Map();
+
+  for (const check of githubChecks) {
+    if (!check.repoSlug) {
+      results[check.addonName] = { success: false, error: 'No GitHub repository configured' };
+      continue;
+    }
+    if (!checksByRepo.has(check.repoSlug)) checksByRepo.set(check.repoSlug, []);
+    checksByRepo.get(check.repoSlug).push(check);
+  }
+
+  for (const check of gitChecks) {
+    try {
+      results[check.addonName] = await checkAddonUpdate(check);
+    } catch (e) {
+      results[check.addonName] = { success: false, error: e.message };
+    }
+  }
+
+  for (const repoChecks of checksByRepo.values()) {
+    for (const check of repoChecks) {
+      try {
+        results[check.addonName] = await checkAddonUpdate(check);
+      } catch (e) {
+        results[check.addonName] = { success: false, error: e.message };
+      }
+    }
+  }
+
+  return results;
 });
 
 ipcMain.handle('addons:update', async (event, { addonsPath, addon }) => {
